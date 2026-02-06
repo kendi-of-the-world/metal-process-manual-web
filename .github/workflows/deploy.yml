@@ -32,11 +32,12 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './dist'
-
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        run: |
+          # Copy dist contents to repo root for GitHub Pages
+          cp -r dist/* .
+          git config user.email "bot@manus.im"
+          git config user.name "Manus Bot"
+          git add -A
+          git commit -m "Deploy: Update built files to GitHub Pages" || echo "No changes to commit"
+          git push origin master
