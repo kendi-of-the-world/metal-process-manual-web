@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/constants/theme.ts","./src/contexts/StorageContext.tsx","./src/screens/CreateManualScreen.tsx","./src/screens/HomeScreen.tsx","./src/screens/ManualDetailScreen.tsx"],"version":"5.9.3"}
