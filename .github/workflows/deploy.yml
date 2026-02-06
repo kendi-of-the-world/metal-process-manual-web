@@ -36,10 +36,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Copy dist contents to repo root for GitHub Pages
-          cp -r dist/* .
+          # Commit and push docs folder
           git config user.email "bot@manus.im"
           git config user.name "Manus Bot"
-          git add -A
+          git add docs/
           git commit -m "Deploy: Update built files to GitHub Pages" || echo "No changes to commit"
           git push https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git master
