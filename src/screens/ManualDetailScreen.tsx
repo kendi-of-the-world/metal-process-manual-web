@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStorage, type WorkManual, type Tool } from '../contexts/StorageContext';
 import { Colors, Spacing } from '../constants/theme';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 interface ManualDetailScreenProps {
   manualId: string;
@@ -48,32 +48,22 @@ const ManualDetailScreen: React.FC<ManualDetailScreenProps> = ({ manualId, onNav
     return <div>作業手順書が見つかりません</div>;
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleToolInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setNewTool(prev => ({ ...prev, [name]: value }));
-  };
-
   const handleAddTool = () => {
     if (newTool.toolName) {
-      setTools([...tools, { id: Date.now().toString(), ...newTool }]);
+      setTools([...tools, { ...newTool, id: Date.now().toString() }]);
       setNewTool({ tNumber: '', hNumber: '', toolName: '', protrusion: '', bladeLength: '' });
     }
   };
 
-  const handleRemoveTool = (id: string) => {
-    setTools(tools.filter(t => t.id !== id));
+  const handleRemoveTool = (toolId: string) => {
+    setTools(tools.filter(tool => tool.id !== toolId));
   };
 
   const handleSave = () => {
     const updatedManual: WorkManual = {
       ...formData,
       tools,
-    };
+    } as WorkManual;
     updateManual(manualId, updatedManual);
     setIsEditing(false);
   };
@@ -81,121 +71,157 @@ const ManualDetailScreen: React.FC<ManualDetailScreenProps> = ({ manualId, onNav
   const handleGeneratePDF = async () => {
     setIsGeneratingPDF(true);
     try {
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 10;
+      // 一時的なPDF設定用のHTML要素を作成
+      const pdfContainer = document.createElement('div');
+      pdfContainer.style.position = 'absolute';
+      pdfContainer.style.left = '-9999px';
+      pdfContainer.style.width = '210mm';
+      pdfContainer.style.padding = '10mm';
+      pdfContainer.style.backgroundColor = '#fff';
+      pdfContainer.style.fontFamily = 'Arial, sans-serif';
+      pdfContainer.style.fontSize = '12px';
+      pdfContainer.style.color = '#000';
+      pdfContainer.style.lineHeight = '1.5';
 
       // タイトル
-      pdf.setFontSize(14);
-      pdf.text('第一製造部 セットアップシート', pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += 10;
+      const title = document.createElement('h1');
+      title.textContent = '第一製造部 セットアップシート';
+      title.style.textAlign = 'center';
+      title.style.fontSize = '18px';
+      title.style.marginBottom = '10mm';
+      pdfContainer.appendChild(title);
 
       // 基本情報テーブル
-      autoTable(pdf, {
-        startY: yPosition,
-        head: [],
-        body: [
-          ['客先', manual.customer, 'ファイルNo', manual.fileNo, '加工機械', manual.machine],
-          ['品名', manual.productName, 'CADデータ', '', '作成日', manual.createdDate],
-          ['品番', manual.productNumber, '', '', '作成者', manual.createdBy],
-        ],
-        columnStyles: {
-          0: { cellWidth: 20, fontStyle: 'bold' },
-          1: { cellWidth: 30 },
-          2: { cellWidth: 20, fontStyle: 'bold' },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 20, fontStyle: 'bold' },
-          5: { cellWidth: 30 },
-        },
-        margin: { left: 10, right: 10 },
-        didDrawPage: (data) => {
-          yPosition = data.pageCount === 1 ? yPosition : 10;
-        },
-      });
-      yPosition = (pdf as any).lastAutoTable.finalY + 5;
+      const table1 = document.createElement('table');
+      table1.style.width = '100%';
+      table1.style.borderCollapse = 'collapse';
+      table1.style.marginBottom = '5mm';
+      table1.innerHTML = `
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold; width: 20%">客先</td>
+          <td style="border: 1px solid #000; padding: 5px; width: 30%">${manual.customer}</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold; width: 20%">ファイルNo</td>
+          <td style="border: 1px solid #000; padding: 5px; width: 30%">${manual.fileNo}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">品名</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.productName}</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">CADデータ</td>
+          <td style="border: 1px solid #000; padding: 5px"></td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">品番</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.productNumber}</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">作成日</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.createdDate}</td>
+        </tr>
+      `;
+      pdfContainer.appendChild(table1);
 
       // 工程・材質情報テーブル
-      autoTable(pdf, {
-        startY: yPosition,
-        head: [],
-        body: [
-          ['工程', `工程(${manual.processTime}分)`, '', '', '材質', manual.material],
-          ['PRG(M)', manual.prgM, '', '', '材寸', manual.materialSize],
-          ['PRG(S)', manual.prgS, '', '', '処理', manual.treatment],
-        ],
-        columnStyles: {
-          0: { cellWidth: 20, fontStyle: 'bold' },
-          1: { cellWidth: 30 },
-          2: { cellWidth: 20 },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 20, fontStyle: 'bold' },
-          5: { cellWidth: 30 },
-        },
-        margin: { left: 10, right: 10 },
-      });
-      yPosition = (pdf as any).lastAutoTable.finalY + 5;
+      const table2 = document.createElement('table');
+      table2.style.width = '100%';
+      table2.style.borderCollapse = 'collapse';
+      table2.style.marginBottom = '5mm';
+      table2.innerHTML = `
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold; width: 20%">工程</td>
+          <td style="border: 1px solid #000; padding: 5px; width: 30%">工程(${manual.processTime}分)</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold; width: 20%">材質</td>
+          <td style="border: 1px solid #000; padding: 5px; width: 30%">${manual.material}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">PRG(M)</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.prgM}</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">材寸</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.materialSize}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">PRG(S)</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.prgS}</td>
+          <td style="border: 1px solid #000; padding: 5px; font-weight: bold">処理</td>
+          <td style="border: 1px solid #000; padding: 5px">${manual.treatment}</td>
+        </tr>
+      `;
+      pdfContainer.appendChild(table2);
 
       // 使用工具一覧テーブル
-      const toolTableData = tools.map((tool, index) => [
-        (index + 1).toString(),
-        '',
-        index === 0 ? manual.toolComment : '',
-        tool.tNumber,
-        tool.hNumber,
-        tool.toolName,
-        tool.protrusion,
-        tool.bladeLength,
-      ]);
+      const table3 = document.createElement('table');
+      table3.style.width = '100%';
+      table3.style.borderCollapse = 'collapse';
+      table3.style.marginBottom = '5mm';
+      table3.innerHTML = `
+        <tr style="background-color: #f0f0f0">
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 8%">N</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 8%">TNo.</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 20%">工具コメント</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 8%">T</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 8%">H</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 20%">使用工具一覧</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 10%">突出</th>
+          <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 10%">Z値</th>
+        </tr>
+        ${tools.map((tool, index) => `
+          <tr>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center">${index + 1}</td>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center"></td>
+            <td style="border: 1px solid #000; padding: 5px">${index === 0 ? manual.toolComment : ''}</td>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center">${tool.tNumber}</td>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center">${tool.hNumber}</td>
+            <td style="border: 1px solid #000; padding: 5px">${tool.toolName}</td>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center">${tool.protrusion}</td>
+            <td style="border: 1px solid #000; padding: 5px; text-align: center">${tool.bladeLength}</td>
+          </tr>
+        `).join('')}
+      `;
+      pdfContainer.appendChild(table3);
 
-      // 空行を追加して10行まで埋める
-      while (toolTableData.length < 10) {
-        toolTableData.push(['', '', '', '', '', '', '', '']);
+      // サブプログラムN番号
+      if (manual.subProgramNNumbers) {
+        const subProgramDiv = document.createElement('div');
+        subProgramDiv.style.marginTop = '5mm';
+        const subProgramLabel = document.createElement('p');
+        subProgramLabel.textContent = 'サブプログラムN番号:';
+        subProgramLabel.style.fontWeight = 'bold';
+        subProgramDiv.appendChild(subProgramLabel);
+        const subProgramText = document.createElement('pre');
+        subProgramText.textContent = manual.subProgramNNumbers;
+        subProgramText.style.fontSize = '10px';
+        subProgramText.style.whiteSpace = 'pre-wrap';
+        subProgramDiv.appendChild(subProgramText);
+        pdfContainer.appendChild(subProgramDiv);
       }
 
-      autoTable(pdf, {
-        startY: yPosition,
-        head: [['N', 'TNo.', '工具コメント', 'T', 'H', '使用工具一覧', '突出', 'Z値']],
-        body: toolTableData,
-        columnStyles: {
-          0: { cellWidth: 12, halign: 'center' },
-          1: { cellWidth: 12, halign: 'center' },
-          2: { cellWidth: 40 },
-          3: { cellWidth: 12, halign: 'center' },
-          4: { cellWidth: 12, halign: 'center' },
-          5: { cellWidth: 40 },
-          6: { cellWidth: 15, halign: 'center' },
-          7: { cellWidth: 15, halign: 'center' },
-        },
-        margin: { left: 10, right: 10 },
-        didDrawPage: (data) => {
-          // ページ番号を追加
-          const pageSize = pdf.internal.pageSize;
-          const pageCount = (pdf as any).internal.getNumberOfPages();
-          pdf.setFontSize(10);
-          pdf.text(`ページ ${data.pageNumber} / ${pageCount}`, pageSize.getWidth() / 2, pageSize.getHeight() - 10, { align: 'center' });
-        },
+      document.body.appendChild(pdfContainer);
+
+      // html2canvasを使用してHTMLを画像に変換
+      const canvas = await html2canvas(pdfContainer, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
       });
 
-      // サブプログラムN番号を最後に追加
-      if (manual.subProgramNNumbers) {
-        yPosition = (pdf as any).lastAutoTable.finalY + 5;
-        pdf.setFontSize(10);
-        pdf.text('サブプログラムN番号:', 10, yPosition);
-        yPosition += 5;
-        const subProgramLines = manual.subProgramNNumbers.split('\n');
-        pdf.setFontSize(9);
-        subProgramLines.forEach((line) => {
-          if (yPosition > pageHeight - 20) {
-            pdf.addPage();
-            yPosition = 10;
-          }
-          pdf.text(line, 15, yPosition);
-          yPosition += 4;
-        });
+      // jsPDFを使用して画像をPDFに変換
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = 210; // A4幅
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= 297; // A4高さ
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= 297;
       }
 
       pdf.save(`${manual.productName}_${manual.productNumber}.pdf`);
+      document.body.removeChild(pdfContainer);
     } catch (error) {
       console.error('PDF生成エラー:', error);
       alert('PDF生成に失敗しました。もう一度お試しください。');
@@ -204,330 +230,386 @@ const ManualDetailScreen: React.FC<ManualDetailScreenProps> = ({ manualId, onNav
     }
   };
 
-  const inputStyle = {
-    width: '100%',
-    padding: `${Spacing.sm}px ${Spacing.md}px`,
-    border: `1px solid ${Colors.light.border}`,
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontFamily: 'inherit',
-    boxSizing: 'border-box' as const,
-  };
-
-  const labelStyle = {
-    display: 'block',
-    marginBottom: Spacing.sm,
-    fontSize: '14px',
-    fontWeight: '600' as const,
-  };
-
-
-
-  if (isEditing) {
-    return (
-      <div>
-        <div style={{ marginBottom: Spacing.xl }}>
-          <h1 style={{ fontSize: '28px', fontWeight: 'bold', margin: '0 0 8px 0' }}>編集</h1>
+  return (
+    <div style={{ padding: Spacing.lg }}>
+      <div style={{ marginBottom: Spacing.lg, display: 'flex', gap: Spacing.md, alignItems: 'center' }}>
+        <button
+          onClick={() => onNavigate('home')}
+          style={{
+            padding: `${Spacing.sm}px ${Spacing.md}px`,
+            backgroundColor: Colors.light.surface,
+            color: Colors.light.text,
+            border: `1px solid ${Colors.light.border}`,
+            borderRadius: '6px',
+            cursor: 'pointer',
+          }}
+        >
+          ← 戻る
+        </button>
+        <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>
+          {isEditing ? '編集' : '詳細表示'}
+        </h1>
+        <button
+          onClick={() => setIsEditing(!isEditing)}
+          style={{
+            marginLeft: 'auto',
+            padding: `${Spacing.sm}px ${Spacing.md}px`,
+            backgroundColor: Colors.light.tint,
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+          }}
+        >
+          {isEditing ? 'キャンセル' : '編集'}
+        </button>
+        {isEditing && (
           <button
-            onClick={() => setIsEditing(false)}
+            onClick={handleSave}
             style={{
               padding: `${Spacing.sm}px ${Spacing.md}px`,
-              backgroundColor: Colors.light.surface,
-              border: `1px solid ${Colors.light.border}`,
+              backgroundColor: '#34C759',
+              color: '#fff',
+              border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '14px',
             }}
           >
-            ← 戻る
+            保存
           </button>
-        </div>
+        )}
+        <button
+          onClick={handleGeneratePDF}
+          disabled={isGeneratingPDF}
+          style={{
+            padding: `${Spacing.sm}px ${Spacing.md}px`,
+            backgroundColor: '#FF9500',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: isGeneratingPDF ? 'not-allowed' : 'pointer',
+            opacity: isGeneratingPDF ? 0.6 : 1,
+          }}
+        >
+          {isGeneratingPDF ? 'PDF生成中...' : 'PDFダウンロード'}
+        </button>
+      </div>
 
-        <div style={{ maxWidth: '800px' }}>
-          {/* 基本情報 */}
-          <div style={{ marginBottom: Spacing.xl, padding: Spacing.lg, backgroundColor: '#fff', borderRadius: '12px', border: `1px solid ${Colors.light.border}` }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: Spacing.md }}>基本情報</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: Spacing.md }}>
-              <div>
-                <label style={labelStyle}>客先</label>
-                <input type="text" name="customer" value={formData.customer} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>品名</label>
-                <input type="text" name="productName" value={formData.productName} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>品番</label>
-                <input type="text" name="productNumber" value={formData.productNumber} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>ファイルNo</label>
-                <input type="text" name="fileNo" value={formData.fileNo} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>加工機械</label>
-                <input type="text" name="machine" value={formData.machine} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>作成日</label>
-                <input type="date" name="createdDate" value={formData.createdDate} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>作成者</label>
-                <input type="text" name="createdBy" value={formData.createdBy} onChange={handleInputChange} style={inputStyle} />
-              </div>
-            </div>
-          </div>
-
-          {/* 工程・材質情報 */}
-          <div style={{ marginBottom: Spacing.xl, padding: Spacing.lg, backgroundColor: '#fff', borderRadius: '12px', border: `1px solid ${Colors.light.border}` }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: Spacing.md }}>工程・材質情報</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: Spacing.md }}>
-              <div>
-                <label style={labelStyle}>工程</label>
-                <input type="text" name="processName" value={formData.processName} onChange={handleInputChange} placeholder="例：粗加工" style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>工程（分）</label>
-                <input type="text" name="processTime" value={formData.processTime} onChange={handleInputChange} placeholder="例：30" style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>PRG(M)</label>
-                <input type="text" name="prgM" value={formData.prgM} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>PRG(S)</label>
-                <input type="text" name="prgS" value={formData.prgS} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>材質</label>
-                <input type="text" name="material" value={formData.material} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>材寸</label>
-                <input type="text" name="materialSize" value={formData.materialSize} onChange={handleInputChange} style={inputStyle} />
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>処理</label>
-                <input type="text" name="treatment" value={formData.treatment} onChange={handleInputChange} style={inputStyle} />
-              </div>
-            </div>
-          </div>
-
-          {/* 使用工具一覧 */}
-          <div style={{ marginBottom: Spacing.xl, padding: Spacing.lg, backgroundColor: '#fff', borderRadius: '12px', border: `1px solid ${Colors.light.border}` }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: Spacing.md }}>使用工具一覧</h2>
-            <div style={{ marginBottom: Spacing.md }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: Spacing.sm }}>
-                <div>
-                  <label style={labelStyle}>T番号</label>
-                  <input type="text" name="tNumber" value={newTool.tNumber} onChange={handleToolInputChange} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>H番号</label>
-                  <input type="text" name="hNumber" value={newTool.hNumber} onChange={handleToolInputChange} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>使用工具</label>
-                  <input type="text" name="toolName" value={newTool.toolName} onChange={handleToolInputChange} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>突出</label>
-                  <input type="text" name="protrusion" value={newTool.protrusion} onChange={handleToolInputChange} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>刃長</label>
-                  <input type="text" name="bladeLength" value={newTool.bladeLength} onChange={handleToolInputChange} style={inputStyle} />
-                </div>
-              </div>
-              <button
-                onClick={handleAddTool}
-                style={{
-                  marginTop: Spacing.md,
-                  padding: `${Spacing.sm}px ${Spacing.md}px`,
-                  backgroundColor: Colors.light.tint,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                }}
-              >
-                工具を追加
-              </button>
-            </div>
-
-            {tools.length > 0 && (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: Colors.light.surface }}>
-                      <th style={{ padding: Spacing.sm, textAlign: 'left', borderBottom: `1px solid ${Colors.light.border}` }}>T番号</th>
-                      <th style={{ padding: Spacing.sm, textAlign: 'left', borderBottom: `1px solid ${Colors.light.border}` }}>H番号</th>
-                      <th style={{ padding: Spacing.sm, textAlign: 'left', borderBottom: `1px solid ${Colors.light.border}` }}>使用工具</th>
-                      <th style={{ padding: Spacing.sm, textAlign: 'left', borderBottom: `1px solid ${Colors.light.border}` }}>突出</th>
-                      <th style={{ padding: Spacing.sm, textAlign: 'left', borderBottom: `1px solid ${Colors.light.border}` }}>刃長</th>
-                      <th style={{ padding: Spacing.sm, textAlign: 'center', borderBottom: `1px solid ${Colors.light.border}` }}>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tools.map(tool => (
-                      <tr key={tool.id} style={{ borderBottom: `1px solid ${Colors.light.border}` }}>
-                        <td style={{ padding: Spacing.sm }}>{tool.tNumber}</td>
-                        <td style={{ padding: Spacing.sm }}>{tool.hNumber}</td>
-                        <td style={{ padding: Spacing.sm }}>{tool.toolName}</td>
-                        <td style={{ padding: Spacing.sm }}>{tool.protrusion}</td>
-                        <td style={{ padding: Spacing.sm }}>{tool.bladeLength}</td>
-                        <td style={{ padding: Spacing.sm, textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleRemoveTool(tool.id)}
-                            style={{
-                              padding: `${Spacing.xs}px ${Spacing.sm}px`,
-                              backgroundColor: '#FF3B30',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                            }}
-                          >
-                            削除
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+      {/* 基本情報セクション */}
+      <div style={{ marginBottom: Spacing.lg, padding: Spacing.lg, backgroundColor: Colors.light.surface, borderRadius: '8px' }}>
+        <h2 style={{ marginTop: 0, marginBottom: Spacing.md }}>基本情報</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: Spacing.md }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>客先</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.customer}
+                onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.customer}</p>
             )}
           </div>
-
-          {/* 工具コメント・サブプログラムN番号 */}
-          <div style={{ marginBottom: Spacing.xl, padding: Spacing.lg, backgroundColor: '#fff', borderRadius: '12px', border: `1px solid ${Colors.light.border}` }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: Spacing.md }}>工具コメント・サブプログラムN番号</h2>
-            <div>
-              <label style={labelStyle}>工具コメント</label>
-              <textarea
-                name="toolComment"
-                value={formData.toolComment}
-                onChange={handleInputChange}
-                style={{
-                  ...inputStyle,
-                  minHeight: '100px',
-                  resize: 'vertical',
-                }}
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>品名</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.productName}
+                onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
               />
-            </div>
-            <div style={{ marginTop: Spacing.md }}>
-              <label style={labelStyle}>サブプログラムN番号</label>
-              <textarea
-                name="subProgramNNumbers"
-                value={formData.subProgramNNumbers}
-                onChange={handleInputChange}
-                placeholder="例：N100&#10;N200&#10;N300"
-                style={{
-                  ...inputStyle,
-                  minHeight: '100px',
-                  resize: 'vertical',
-                  whiteSpace: 'pre-wrap',
-                }}
-              />
-            </div>
+            ) : (
+              <p style={{ margin: 0 }}>{manual.productName}</p>
+            )}
           </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>品番</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.productNumber}
+                onChange={(e) => setFormData({ ...formData, productNumber: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.productNumber}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>ファイルNo</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.fileNo}
+                onChange={(e) => setFormData({ ...formData, fileNo: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.fileNo}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>作成日</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.createdDate}
+                onChange={(e) => setFormData({ ...formData, createdDate: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.createdDate}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>作成者</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.createdBy}
+                onChange={(e) => setFormData({ ...formData, createdBy: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.createdBy}</p>
+            )}
+          </div>
+        </div>
+      </div>
 
-          {/* 保存ボタン */}
-          <div style={{ display: 'flex', gap: Spacing.md }}>
+      {/* 工程・材質情報セクション */}
+      <div style={{ marginBottom: Spacing.lg, padding: Spacing.lg, backgroundColor: Colors.light.surface, borderRadius: '8px' }}>
+        <h2 style={{ marginTop: 0, marginBottom: Spacing.md }}>工程・材質情報</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: Spacing.md }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>工程時間（分）</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.processTime}
+                onChange={(e) => setFormData({ ...formData, processTime: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.processTime}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>PRG(M)</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.prgM}
+                onChange={(e) => setFormData({ ...formData, prgM: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.prgM}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>PRG(S)</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.prgS}
+                onChange={(e) => setFormData({ ...formData, prgS: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.prgS}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>材質</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.material}
+                onChange={(e) => setFormData({ ...formData, material: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.material}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>材寸</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.materialSize}
+                onChange={(e) => setFormData({ ...formData, materialSize: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.materialSize}</p>
+            )}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: Spacing.sm, fontWeight: '600' }}>処理</label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.treatment}
+                onChange={(e) => setFormData({ ...formData, treatment: e.target.value })}
+                style={{ width: '100%', padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            ) : (
+              <p style={{ margin: 0 }}>{manual.treatment}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 工具コメント */}
+      <div style={{ marginBottom: Spacing.lg, padding: Spacing.lg, backgroundColor: Colors.light.surface, borderRadius: '8px' }}>
+        <h2 style={{ marginTop: 0, marginBottom: Spacing.md }}>工具コメント</h2>
+        {isEditing ? (
+          <textarea
+            value={formData.toolComment}
+            onChange={(e) => setFormData({ ...formData, toolComment: e.target.value })}
+            style={{
+              width: '100%',
+              padding: Spacing.md,
+              border: `1px solid ${Colors.light.border}`,
+              borderRadius: '4px',
+              minHeight: '100px',
+              fontFamily: 'inherit',
+            }}
+          />
+        ) : (
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{manual.toolComment}</p>
+        )}
+      </div>
+
+      {/* 使用工具一覧 */}
+      <div style={{ marginBottom: Spacing.lg, padding: Spacing.lg, backgroundColor: Colors.light.surface, borderRadius: '8px' }}>
+        <h2 style={{ marginTop: 0, marginBottom: Spacing.md }}>使用工具一覧</h2>
+        <div style={{ overflowX: 'auto', marginBottom: Spacing.md }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ backgroundColor: Colors.light.background }}>
+                <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'left' }}>T</th>
+                <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'left' }}>H</th>
+                <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'left' }}>工具名</th>
+                <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'left' }}>突出</th>
+                <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'left' }}>Z値</th>
+                {isEditing && <th style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'center' }}>削除</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {tools.map((tool) => (
+                <tr key={tool.id}>
+                  <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm }}>{tool.tNumber}</td>
+                  <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm }}>{tool.hNumber}</td>
+                  <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm }}>{tool.toolName}</td>
+                  <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm }}>{tool.protrusion}</td>
+                  <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm }}>{tool.bladeLength}</td>
+                  {isEditing && (
+                    <td style={{ border: `1px solid ${Colors.light.border}`, padding: Spacing.sm, textAlign: 'center' }}>
+                      <button
+                        onClick={() => handleRemoveTool(tool.id)}
+                        style={{
+                          padding: `${Spacing.xs}px ${Spacing.sm}px`,
+                          backgroundColor: '#FF3B30',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        削除
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {isEditing && (
+          <div style={{ padding: Spacing.md, backgroundColor: '#fff', border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}>
+            <h3 style={{ marginTop: 0, marginBottom: Spacing.md }}>工具を追加</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: Spacing.md, marginBottom: Spacing.md }}>
+              <input
+                type="text"
+                placeholder="T"
+                value={newTool.tNumber}
+                onChange={(e) => setNewTool({ ...newTool, tNumber: e.target.value })}
+                style={{ padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+              <input
+                type="text"
+                placeholder="H"
+                value={newTool.hNumber}
+                onChange={(e) => setNewTool({ ...newTool, hNumber: e.target.value })}
+                style={{ padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+              <input
+                type="text"
+                placeholder="工具名"
+                value={newTool.toolName}
+                onChange={(e) => setNewTool({ ...newTool, toolName: e.target.value })}
+                style={{ padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+              <input
+                type="text"
+                placeholder="突出"
+                value={newTool.protrusion}
+                onChange={(e) => setNewTool({ ...newTool, protrusion: e.target.value })}
+                style={{ padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+              <input
+                type="text"
+                placeholder="Z値"
+                value={newTool.bladeLength}
+                onChange={(e) => setNewTool({ ...newTool, bladeLength: e.target.value })}
+                style={{ padding: Spacing.sm, border: `1px solid ${Colors.light.border}`, borderRadius: '4px' }}
+              />
+            </div>
             <button
-              onClick={handleSave}
+              onClick={handleAddTool}
               style={{
-                flex: 1,
-                padding: `${Spacing.md}px ${Spacing.lg}px`,
+                padding: `${Spacing.sm}px ${Spacing.md}px`,
                 backgroundColor: Colors.light.tint,
                 color: '#fff',
                 border: 'none',
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: '600',
+                borderRadius: '4px',
                 cursor: 'pointer',
               }}
             >
-              保存
-            </button>
-            <button
-              onClick={() => setIsEditing(false)}
-              style={{
-                flex: 1,
-                padding: `${Spacing.md}px ${Spacing.lg}px`,
-                backgroundColor: Colors.light.surface,
-                color: Colors.light.text,
-                border: `1px solid ${Colors.light.border}`,
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              キャンセル
+              追加
             </button>
           </div>
-        </div>
+        )}
       </div>
-    );
-  }
 
-  return (
-    <div>
-      <div style={{ marginBottom: Spacing.xl }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 'bold', margin: '0 0 8px 0' }}>
-          {manual.productName}
-        </h1>
-        <div style={{ display: 'flex', gap: Spacing.md }}>
-          <button
-            onClick={() => onNavigate('home')}
+      {/* サブプログラムN番号 */}
+      <div style={{ marginBottom: Spacing.lg, padding: Spacing.lg, backgroundColor: Colors.light.surface, borderRadius: '8px' }}>
+        <h2 style={{ marginTop: 0, marginBottom: Spacing.md }}>サブプログラムN番号</h2>
+        {isEditing ? (
+          <textarea
+            value={formData.subProgramNNumbers}
+            onChange={(e) => setFormData({ ...formData, subProgramNNumbers: e.target.value })}
             style={{
-              padding: `${Spacing.sm}px ${Spacing.md}px`,
-              backgroundColor: Colors.light.surface,
+              width: '100%',
+              padding: Spacing.md,
               border: `1px solid ${Colors.light.border}`,
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
+              borderRadius: '4px',
+              minHeight: '150px',
+              fontFamily: 'monospace',
             }}
-          >
-            ← 戻る
-          </button>
-          <button
-            onClick={() => setIsEditing(true)}
-            style={{
-              padding: `${Spacing.sm}px ${Spacing.md}px`,
-              backgroundColor: Colors.light.tint,
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
-            }}
-          >
-            編集
-          </button>
-          <button
-            onClick={handleGeneratePDF}
-            disabled={isGeneratingPDF}
-            style={{
-              padding: `${Spacing.sm}px ${Spacing.md}px`,
-              backgroundColor: Colors.light.tint,
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: isGeneratingPDF ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-              opacity: isGeneratingPDF ? 0.6 : 1,
-            }}
-          >
-            {isGeneratingPDF ? 'PDF生成中...' : 'PDFダウンロード'}
-          </button>
-        </div>
+          />
+        ) : (
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>
+            {manual.subProgramNNumbers}
+          </pre>
+        )}
       </div>
-
-
     </div>
   );
 };
